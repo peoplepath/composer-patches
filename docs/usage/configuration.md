@@ -172,6 +172,26 @@ For completeness, all of the patchers that ship with the plugin are listed above
 
 After changing this value, you should re-lock and re-apply patches to your project.
 
+---
+
+### `auto-repatch`
+
+```json
+{
+    [...],
+    "extra": {
+        "composer-patches": {
+            "auto-repatch": true
+        }
+    }
+}
+```
+
+**Default value**: `false`
+
+Composer only applies patches when a package is actually being installed or updated. If a package is already installed and already matches `composer.lock`, and you only add or change a patch for it (without bumping its version), a plain `composer install` will report `Nothing to install, update or remove` for that package and your patch will **not** be applied -- even if `patches.lock.json` already reflects it correctly. This is especially noticeable on deploy hosts (e.g. Pantheon) that only run `composer install` and can't run `composer patches-repatch` as a separate step.
+
+Enabling this option makes the plugin detect, at the end of every `composer install`/`composer update` run, whether any package's patch set has drifted from what's actually applied to its installed files. If it has, that specific package (and only that package) is uninstalled and reinstalled so its patches get reapplied -- without touching any other package.
 
 ## Relevant configuration provided by Composer
 

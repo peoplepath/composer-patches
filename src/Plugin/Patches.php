@@ -21,6 +21,8 @@ use Composer\Package\PackageInterface;
 use Composer\Plugin\Capability\CommandProvider as CommandProviderCapability;
 use Composer\Plugin\Capable;
 use Composer\Plugin\PluginInterface;
+use Composer\Script\Event as ScriptEvent;
+use Composer\Script\ScriptEvents;
 use Composer\Util\ProcessExecutor;
 use cweagans\Composer\Capability\CommandProvider;
 use cweagans\Composer\Capability\Downloader\CoreDownloaderProvider;
@@ -37,6 +39,7 @@ use cweagans\Composer\Locker;
 use cweagans\Composer\Patch;
 use cweagans\Composer\PatchCollection;
 use cweagans\Composer\Patcher;
+use cweagans\Composer\Reconciler;
 use cweagans\Composer\Resolver;
 use cweagans\Composer\Util;
 use InvalidArgumentException;
@@ -85,6 +88,11 @@ class Patches implements PluginInterface, EventSubscriberInterface, Capable
 
     protected JsonFile $lockFile;
 
+    protected Reconciler $reconciler;
+
+    // Re-entrancy guard for reconcilePatchedPackages().
+    protected static bool $reconciling = false;
+
     /**
      * Get the path to the current patches lock file.
      */
@@ -121,6 +129,7 @@ class Patches implements PluginInterface, EventSubscriberInterface, Capable
             $this->io
         );
         $this->locker = new Locker($this->lockFile);
+        $this->reconciler = new Reconciler($this->composer, $this->io);
         $this->configuration = [
             'disable-resolvers' => [
                 'type' => 'list',
@@ -150,6 +159,10 @@ class Patches implements PluginInterface, EventSubscriberInterface, Capable
                 'type' => 'list',
                 'default' => [],
             ],
+            'auto-repatch' => [
+                'type' => 'bool',
+                'default' => false,
+            ],
         ];
         $this->configure($this->composer->getPackage()->getExtra(), 'composer-patches');
     }
@@ -171,6 +184,10 @@ class Patches implements PluginInterface, EventSubscriberInterface, Capable
             // @see: https://github.com/cweagans/composer-patches/pull/153
             PackageEvents::POST_PACKAGE_INSTALL => ['patchPackage', 10],
             PackageEvents::POST_PACKAGE_UPDATE => ['patchPackage', 10],
+            // Unlike the package-level events above, these fire even when the solver
+            // has nothing to do, which is needed to catch drift (see reconcilePatchedPackages).
+            ScriptEvents::POST_INSTALL_CMD => ['reconcilePatchedPackages'],
+            ScriptEvents::POST_UPDATE_CMD => ['reconcilePatchedPackages'],
         );
     }
 
@@ -327,6 +344,9 @@ class Patches implements PluginInterface, EventSubscriberInterface, Capable
                 true,
                 IOInterface::DEBUG,
             );
+            if ($this->getConfig('auto-repatch')) {
+                $this->reconciler->setPackageHash($package->getName(), null);
+            }
             return;
         }
 
@@ -366,6 +386,57 @@ class Patches implements PluginInterface, EventSubscriberInterface, Capable
             true,
             IOInterface::DEBUG
         );
+
+        if ($this->getConfig('auto-repatch')) {
+            $this->reconciler->setPackageHash(
+                $package->getName(),
+                Locker::getPackageHash($this->patchCollection, $package->getName())
+            );
+        }
+    }
+
+    /**
+     * Reinstalls packages whose patch set has drifted from what's applied on disk.
+     *
+     * @see https://github.com/cweagans/composer-patches/issues/583
+     */
+    public function reconcilePatchedPackages(ScriptEvent $event): void
+    {
+        if (!$this->getConfig('auto-repatch')) {
+            return;
+        }
+
+        if (self::$reconciling) {
+            return;
+        }
+
+        self::$reconciling = true;
+        try {
+            // A no-op solver run never fires PRE_PACKAGE_INSTALL, so this may still be unset.
+            if (!isset($this->patchCollection)) {
+                $this->loadLockedPatches();
+            }
+
+            $desired = Locker::getPackageHashes($this->patchCollection);
+            $drifted = $this->reconciler->getDriftedPackages($desired);
+
+            if (!empty($drifted)) {
+                $this->reconciler->reinstallPackages($drifted, $event->isDevMode());
+            }
+
+            $localRepository = $this->composer->getRepositoryManager()->getLocalRepository();
+            $installedNames = array_map(fn ($p) => $p->getName(), $localRepository->getPackages());
+
+            $this->reconciler->writeAppliedHashes($desired);
+            $this->reconciler->pruneMissingPackages($installedNames);
+        } finally {
+            self::$reconciling = false;
+        }
+    }
+
+    public function getReconciler(): Reconciler
+    {
+        return $this->reconciler;
     }
 
     /**

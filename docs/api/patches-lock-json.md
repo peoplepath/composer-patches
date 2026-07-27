@@ -20,3 +20,7 @@ If the [`COMPOSER`]({{< relref "../usage/configuration.md#composer" >}}) environ
 * Each patch definition will look like the [expanded format]({{< relref "../usage/defining-patches.md#expanded-format" >}}) that users can put into their `composer.json` or external patches file.
 * No _removals_ or _changes_ will be made to the patch definition object. _Additional_ keys may be created, so any JSON parsing you're doing should be tolerant of new keys.
 * The `extra` object in each patch definition may contain a number of attributes set by other projects or by the user and should be treated as free-form input. Currently, Composer Patches uses this attribute to store information about where a patch was defined (in the `provenance` key).
+
+## `vendor/composer/installed-patches.lock.json`
+
+When [`auto-repatch`]({{< relref "../usage/configuration.md#auto-repatch" >}}) is enabled, Composer Patches also maintains a second file, `vendor/composer/installed-patches.lock.json`, recording the patch set that was actually applied to each installed package (as opposed to `patches.lock.json`, which records the patch set that _should_ be applied). This file is internal, not part of the `patches.lock.json` API described above, and its structure may change at any time. It should not be committed to version control.

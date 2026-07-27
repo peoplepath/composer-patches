@@ -36,6 +36,36 @@ class Locker
         return hash('sha256', JsonFile::encode($file, 0));
     }
 
+    /**
+     * Returns the sha256 hash of a single package's patch set.
+     *
+     * Unlike getCollectionHash(), changing patches for one package does not
+     * change the hash for any other package.
+     */
+    public static function getPackageHash(PatchCollection $patchCollection, string $package): string
+    {
+        $patches = array_map(
+            fn ($patch) => $patch->jsonSerialize(),
+            $patchCollection->getPatchesForPackage($package)
+        );
+        return hash('sha256', JsonFile::encode($patches, 0));
+    }
+
+    /**
+     * Returns a map of package name => sha256 hash of that package's patch set.
+     *
+     * @return array<string, string>
+     */
+    public static function getPackageHashes(PatchCollection $patchCollection): array
+    {
+        $hashes = [];
+        foreach ($patchCollection->getPatchedPackages() as $package) {
+            $hashes[$package] = self::getPackageHash($patchCollection, $package);
+        }
+        ksort($hashes);
+        return $hashes;
+    }
+
     public function isLocked(): bool
     {
         if (!$this->virtualFileWritten && !$this->lockFile->exists()) {

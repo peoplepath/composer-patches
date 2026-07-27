@@ -9,9 +9,12 @@ namespace cweagans\Composer\Tests\Unit;
 
 use Codeception\Test\Unit;
 use Composer\Composer;
+use Composer\Config;
 use Composer\EventDispatcher\EventDispatcher;
 use Composer\IO\NullIO;
 use Composer\Package\RootPackage;
+use Composer\Script\Event as ScriptEvent;
+use Composer\Script\ScriptEvents;
 use cweagans\Composer\Patch;
 use cweagans\Composer\Plugin\Patches;
 
@@ -105,5 +108,44 @@ class PatchesPluginTest extends Unit
         $patch = new Patch();
         $patch->package = 'some/package';
         yield 'depth set in project package override list' => [$plugin, $patch, 234];
+    }
+
+    public function testGetSubscribedEventsIncludesReconciliation()
+    {
+        $events = Patches::getSubscribedEvents();
+
+        $this->assertArrayHasKey(ScriptEvents::POST_INSTALL_CMD, $events);
+        $this->assertEquals(['reconcilePatchedPackages'], $events[ScriptEvents::POST_INSTALL_CMD]);
+
+        $this->assertArrayHasKey(ScriptEvents::POST_UPDATE_CMD, $events);
+        $this->assertEquals(['reconcilePatchedPackages'], $events[ScriptEvents::POST_UPDATE_CMD]);
+    }
+
+    // With auto-repatch left at its default (disabled), this must be a complete no-op.
+    public function testReconcileNoOpsWhenFlagDisabled()
+    {
+        $vendorDir = codecept_output_dir('patches-plugin-test-' . uniqid());
+        mkdir($vendorDir, 0777, true);
+
+        $config = new Config(false);
+        $config->merge(['config' => ['vendor-dir' => $vendorDir]]);
+
+        $package = new RootPackage('test/package', '1.0.0.0', '1.0.0');
+        $package->setExtra([]);
+
+        $io = new NullIO();
+        $composer = new Composer();
+        $composer->setPackage($package);
+        $composer->setConfig($config);
+        $composer->setEventDispatcher(new EventDispatcher($composer, $io));
+
+        $plugin = new Patches();
+        $plugin->activate($composer, $io);
+
+        $event = new ScriptEvent(ScriptEvents::POST_INSTALL_CMD, $composer, $io);
+        $plugin->reconcilePatchedPackages($event);
+
+        $this->assertEquals([], $plugin->getReconciler()->getAppliedHashes());
+        $this->assertFileDoesNotExist($vendorDir . '/composer/installed-patches.lock.json');
     }
 }

@@ -25,3 +25,9 @@ various versions of `patch`, but that is no longer the case. Make sure you have 
 ## Download patches securely
 
 If you've been referred here, you're trying to download patches over HTTP without explicitly telling Composer that you want to do that. See the [`secure-http`]({{< relref "../usage/configuration.md#secure-http" >}}) documentation for more information.
+
+## My patch changes aren't applied after `composer install`
+
+Composer only applies patches when a package is actually being installed or updated. If you add or change a patch for a package that's already installed and already satisfies `composer.lock` (i.e. you didn't also bump its version), a plain `composer install` will report `Nothing to install, update or remove` for that package, and your patch change won't be picked up -- even if `patches.lock.json` is already correct.
+
+Normally, you'd fix this by running [`composer patches-repatch`]({{< relref "../usage/commands.md#composer-patches-repatch" >}}) after relocking. If you're on a host that only ever runs `composer install` (and can't run additional commands as part of a deploy), see [Restricted deploy hosts (install-only)]({{< relref "../usage/recommended-workflows.md#restricted-deploy-hosts-install-only" >}}) for how to make `composer install` detect and fix this automatically.

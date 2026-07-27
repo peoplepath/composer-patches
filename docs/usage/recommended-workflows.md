@@ -44,4 +44,31 @@ Ensure that you don't have any unsaved changes in any patched dependencies in yo
 5. If your patch definition was removed from  `composer.json`, run `composer update --lock` to update the content hash in `composer.lock`.
 6. Commit any related changes to your external patches file (if configured), `composer.json`, `composer.lock`, and `patches.lock.json`.
 
+## Restricted deploy hosts (install-only)
+
+The workflows above rely on being able to run `composer patches-repatch` as a separate step after pulling in a new or changed patch. Some hosting providers (Pantheon, for example) only run `composer install` during a deploy and don't give you a way to run additional commands in between.
+
+On these hosts, if a patch is added or changed for a package that's already installed and already satisfies `composer.lock`, `composer install` will report `Nothing to install, update or remove` for that package and your patch won't be applied, even though `patches.lock.json` is correct.
+
+To handle this automatically, enable [`auto-repatch`]({{< relref "configuration.md#auto-repatch" >}}):
+
+```json
+{
+    [...],
+    "extra": {
+        "composer-patches": {
+            "auto-repatch": true
+        }
+    }
+}
+```
+
+or via the equivalent environment variable, which is often easier to set on a host you don't control the `composer.json` deploy pipeline for:
+
+```shell
+COMPOSER_PATCHES_AUTO_REPATCH=1 composer install
+```
+
+With this enabled, a plain `composer install` will detect that a package's patch set has drifted and reinstall just that package to reapply its patches -- you still need to run `composer patches-relock` (as in "Add a patch to your project" above) so `patches.lock.json` reflects the new patch, but you no longer need a separate `composer patches-repatch` step.
+
 
